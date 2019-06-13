@@ -49,8 +49,6 @@ def app():
                 app()
         if menu_selection == 'b':
             csv_backup()
-            os.remove('inventory.csv')
-            os.rename('inventory_backup.csv', 'inventory.csv')
             clr_scr()
             app_header()
             print('\n' + '='*8 + ' Database Backed to CSV ' + '='*8+ '\n'
@@ -63,7 +61,7 @@ def app():
 def csv_backup():
     """ Func writes all informatio in database to temp CSV file """
     query = Product.select()
-    with open('inventory_backup.csv', 'x') as csvfile:
+    with open('backup.csv', 'x') as csvfile:
         fieldnames = ['product_name', 'product_price', 'product_quantity',
                       'date_updated']
         csvwriter = csv.DictWriter(csvfile, lineterminator='\n',
