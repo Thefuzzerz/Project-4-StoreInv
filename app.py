@@ -11,7 +11,7 @@ import csv
 import datetime
 from peewee import SqliteDatabase
 from peewee import Model
-from peewee import DecimalField, CharField, DateTimeField, IntegerField
+from peewee import CharField, DateTimeField, IntegerField
 
 #pylint: disable=C0103
 db = SqliteDatabase('inventory.db')
@@ -20,7 +20,7 @@ class Product(Model):
     """ Model for Product in database. """
     product_name = CharField(max_length=255)
     product_quantity = IntegerField()
-    product_price = DecimalField()
+    product_price = IntegerField()
     product_date = DateTimeField()
 
     #pylint: disable=R0903
@@ -30,6 +30,7 @@ class Product(Model):
 
 def app():
     """ Main application function. """
+    duplicate_combined()
     attempts = 0
     while True:
         clr_scr()
@@ -54,29 +55,56 @@ def app():
             print('\n' + '='*8 + ' Database Backed to CSV ' + '='*8+ '\n'
                   '\n' + ' '*10 + 'Hit Enter to Continue')
             input()
+            app()
         if menu_selection == 'i':
             view_db()
-        attempts += 1
+        else:
+            attempts += 1
+
+def duplicate_combined():
+    """Func to remove any old entries in database."""
+    query = Product.select()
+    for product in query:
+        dup_check = Product.select().where(Product.product_name == product.product_name)
+        prod_entries = len(dup_check)
+        if prod_entries > 1:
+            prod_1 = dup_check[0]
+            prod_2 = dup_check[1]
+            if prod_1.product_date > prod_2.product_date:
+                prod_1.product_date = prod_1.product_date.date()
+                prod_1.save()
+                prod_2.delete_instance()
+                app()
+            else:
+                prod_2.product_date = prod_2.product_date.date()
+                prod_2.save()
+                prod_1.delete_instance()
+                app()
 
 def csv_backup():
     """ Func writes all informatio in database to temp CSV file """
     query = Product.select()
-    with open('backup.csv', 'x') as csvfile:
+    try:
+        os.remove('backup.csv')
+    except FileNotFoundError:
+        pass
+    with open('backup.csv', 'a') as csvfile:
         fieldnames = ['product_name', 'product_price', 'product_quantity',
                       'date_updated']
         csvwriter = csv.DictWriter(csvfile, lineterminator='\n',
                                    fieldnames=fieldnames)
         csvwriter.writeheader()
         for product in query:
+            conv_cents = f'${display_price(product)}'
             date_format = product.product_date.strftime('%m/%d/%Y')
             csvwriter.writerow({'product_name': product.product_name,
-                                'product_price': f'${product.product_price}',
+                                'product_price': conv_cents,
                                 'product_quantity': product.product_quantity,
                                 'date_updated': date_format
                                })
 
 def csv_import():
-    """ Func to read CSV file into a variable return ass import_dict. """
+    """ Func to read CSV file into a variable return as import_dict. """
     import_dict = []
     with open('inventory.csv', 'r', newline="") as csvfile:
         fieldnames = ['product_name', 'product_price', 'product_quantity',
@@ -86,7 +114,8 @@ def csv_import():
             if row['product_name'] == 'product_name':
                 pass
             else:
-                row['product_price'] = float(row['product_price'][1:])
+                float_conv = round(float(row['product_price'][1:]) * 100)
+                row['product_price'] = float_conv
                 row['product_quantity'] = int(row['product_quantity'])
                 row['product_date'] = datetime.datetime.strptime(
                     row['date_updated'], '%m/%d/%Y').date()
@@ -132,9 +161,9 @@ def add_product():
     clr_scr()
     print('*'*5 + ' Confirm Addition to Inventory ' + '*'*5 +
           f'\n\nProduct Name: {new_product[0]}'
-          f'\nProduct Quantity: {new_product[1]}')
-    print('Product Cost per Unit: ${}'.format(format(new_product[2], '.2f')))
-    print('\n[Y]es or [N]o')
+          f'\nProduct Quantity: {new_product[1]}'
+          f'\nProduct Cost per Unit: ${new_product[2]/100}'
+          '\n[Y]es or [N]o')
     while True:
         confirm = input()
         if confirm.lower() == 'y':
@@ -173,6 +202,7 @@ def update_product(choice, product):
         print('Enter a the New Product Price (X.XX):\n'
               'Enter [X] to Cancel')
         new_product_price = positive_number()
+        new_product_price = round(new_product_price*100)
         product.product_price = new_product_price
     new_product_date = datetime.datetime.now().date()
     product.product_date = new_product_date
@@ -186,7 +216,7 @@ def change_menu(product):
     app_header()
     print(f'[1] -- Change Product Name: {product.product_name}\n'
           f'[2] -- Change Product Quantity: {product.product_quantity}\n'
-          f'[3] -- Change Product Price: {product.product_price}\n'
+          f'[3] -- Change Product Price: ${display_price(product)}\n'
          )
     choice = input('Select 1 - 3 -- Enter [X] to Exit\n')
     while True:
@@ -204,7 +234,7 @@ def change_menu(product):
             app_header()
             print(f'[1]-- Change Product Name: {product.product_name}\n'
                   f'[2]-- Change Product Quantity: {product.product_quantity}\n'
-                  f'[3]-- Change Product Price: {product.product_price}\n'
+                  f'[3]-- Change Product Price: ${display_price(product)}\n'
                  )
             print('*'*8 + ' Invalid Selection ' + '*'*8)
             choice = input('Select 1 - 3 -- Enter [X] to Return\n')
@@ -266,7 +296,8 @@ def product_info():
         else:
             product_header()
             print('Product Price per Unit (X.XX):')
-            new_product_price = positive_number()
+            float_product_price = positive_number()
+            new_product_price = float_product_price * 100
             new_product_date = datetime.datetime.now().date()
             return(new_product_name, new_product_qnty, new_product_price,
                    new_product_date)
@@ -344,6 +375,13 @@ def menu():
     else:
         return choice
 
+def display_price(product):
+    """ Func to convert cents to display in dollars """
+    dollar_val = str(product.product_price)[:-2]
+    cents_val = str(product.product_price)[-2:]
+    price_conv = dollar_val + "." + cents_val
+    return price_conv
+
 def display_product(select_prod):
     """ Func for displaying Product passed into func. """
     clr_scr()
@@ -351,7 +389,7 @@ def display_product(select_prod):
     print('\n' + '='*12 + f' PRODUCT ID#: {select_prod.id} ' + '='*12 + '\n'
           f'\nProduct Name: {select_prod.product_name}\n'
           f'Quantity in Stock: {select_prod.product_quantity}\n'
-          f'Price Per Unit: ${select_prod.product_price}\n'
+          f'Price Per Unit: ${display_price(select_prod)}\n'
           f'Date Added to Inventory: {select_prod.product_date.date()}\n'
          )
     print('\nHit Enter to Exit - [D] to Delete Entry - [C] - Change Value')
@@ -383,7 +421,7 @@ def view_product():
         clr_scr()
         app_header()
         if attemps >= 1:
-            print('No Product with Entered ID #\n')
+            print(f'No Product with Entered ID #{id_num}\n')
         print('Enter Product ID -- Enter [x] to Exit')
         id_num = positive_number()
         try:
